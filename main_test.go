@@ -16,25 +16,25 @@ var htmlDoc = `
 
 func TestCreatePDF(t *testing.T) {
 
-	var buffer bytes.Buffer
-	CreatePDF(htmlDoc, &buffer)
+	inputHtml, err := os.ReadFile("input.html")
+	if err != nil {
+		t.Fatal("Error reading input.html:", err)
+	}
 
-	err := os.WriteFile("test_result.pdf", buffer.Bytes(), 0644)
+	var buffer bytes.Buffer
+	CreatePDF(string(inputHtml), &buffer)
+
+	t.Logf("Size of generated PDF buffer: %d bytes", buffer.Len())
+
+	err = os.WriteFile("test_result.pdf", buffer.Bytes(), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write test_result.pdf: %v", err)
 	}
 
-	/*referencePDF, err := os.ReadFile("test_reference.pdf")
-
+	err = compareWithReferenceFile("test_reference.pdf", buffer.Bytes())
 	if err != nil {
-		t.Fatalf("Failed to load reference PDF: %v", err)
+		t.Fatalf("Comparison error: %v", err)
 	}
-
-	if !bytes.Equal(buffer.Bytes(), referencePDF) {
-		t.Fatalf("Generated PDF does not match the reference PDF")
-
-	}*/
-
 }
 
 func BenchmarkCreatePDF(b *testing.B) {
