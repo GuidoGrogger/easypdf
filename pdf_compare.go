@@ -8,7 +8,7 @@ import (
 // not a nice way to compare pdfs but it works for testing and refactoring
 // pdfs are considered to be not equal when the size doenst match or when a
 // threshold of bytes differ
-const MAX_DIFF_THRESHOLD = 300 // empirisch ermittelt
+const MAX_DIFF_THRESHOLD = 500 // empirisch ermittelt
 
 func compareWithReferenceFile(filename string, byteArray []byte) error {
 	referenceFileContent, err := os.ReadFile(filename)

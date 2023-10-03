@@ -35,7 +35,7 @@ func flushLineBuffer(ctx *Context, attrMap *NestedMap) {
 	// TODO HAndling end of Paragraph
 	// todo, kann das in den line buffer?
 	ctx.pdf.SetX(attrMap.Fetch("CURRENT_AREA_X").(float64))
-	gapToFill := attrMap.Fetch("CURRENT_AREA_WIDTH").(float64) - ctx.lineBufferLength
+	gapToFill := attrMap.Fetch("CURRENT_AREA_WIDTH").(float64) - *ctx.lineBufferLength
 
 	if attrMap.Fetch("align") == "right" {
 		ctx.pdf.SetX(ctx.pdf.GetX() + gapToFill)
@@ -43,25 +43,26 @@ func flushLineBuffer(ctx *Context, attrMap *NestedMap) {
 
 	gapBetweenItems := 0.0
 	if attrMap.Fetch("align") == "block" {
-		itemsCount := len(ctx.lineBuffer)
+		itemsCount := len(*ctx.lineBuffer)
 		gapBetweenItems = gapToFill / float64(itemsCount-1)
 	}
 
-	for _, value := range ctx.lineBuffer {
+	for _, value := range *ctx.lineBuffer {
 		value.Render(ctx)
 		ctx.pdf.SetX(ctx.pdf.GetX() + gapBetweenItems)
 	}
-	ctx.lineBuffer = ctx.lineBuffer[:0]
-	ctx.lineBufferLength = 0.0
+	*ctx.lineBuffer = (*ctx.lineBuffer)[:0]
+	*ctx.lineBufferLength = 0.0
 	ctx.pdf.Ln(7) // TODO Caluclate based on Line heigth
 }
 
 type Context struct {
-	pdf        gofpdf.Pdf
-	translator func(string) string
+	pdf        gofpdf.Pdf          // initialze as pointer
+	translator func(string) string // check memory?
 	// line buffer needed because items on a single line can be nested in html, like <b><i>...</i></b>
-	lineBuffer       []LineItem
-	lineBufferLength float64
+	lineBuffer       *[]LineItem
+	lineBufferLength *float64
+	fontStyle        string
 }
 
 func CreatePDF(htmlDoc string, w io.Writer) error {
@@ -78,37 +79,39 @@ func CreatePDF(htmlDoc string, w io.Writer) error {
 	context := Context{
 		pdf:              pdf,
 		translator:       pdf.UnicodeTranslatorFromDescriptor(""),
-		lineBufferLength: 0,
+		lineBufferLength: new(float64),
+		lineBuffer:       new([]LineItem),
+		fontStyle:        "",
 	}
 	topAttrMap := NewNestedMap(nil)
 	topAttrMap.Set("CURRENT_AREA_X", pdf.GetX())
 	topAttrMap.Set("CURRENT_AREA_WIDTH", 180.0)
 
-	processNodeRecur(&context, doc, topAttrMap)
+	processNodeRecur(context, doc, topAttrMap)
 
 	return pdf.Output(w)
 }
 
-func processNodeRecur(ctx *Context, n *html.Node, parentAttrMap *NestedMap) {
+func processNodeRecur(ctx Context, n *html.Node, parentAttrMap *NestedMap) {
 	attrMap := NewNestedMap(parentAttrMap)
 
 	if n.Type == html.TextNode {
-		processTextNode(attrMap, n, ctx)
+		processTextNode(attrMap, n, &ctx)
 		return
 	}
 
 	if n.Type == html.ElementNode {
-		processElement(n, attrMap, ctx)
+		processElement(n, attrMap, &ctx)
 		return
 	}
 
 	// for non element nodes
-	processChdilrenRecu(n, ctx, attrMap)
+	processChdilrenRecu(n, &ctx, attrMap)
 }
 
 func processChdilrenRecu(n *html.Node, ctx *Context, attrMap *NestedMap) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		processNodeRecur(ctx, c, attrMap)
+		processNodeRecur(*ctx, c, attrMap)
 	}
 }
 
@@ -122,11 +125,11 @@ func processElement(n *html.Node, attrMap *NestedMap, ctx *Context) {
 		ctx.pdf.Ln(3) // On top of normal line buffer heigth
 		return
 	case "b":
-		attrMap.Set("<B>", "1")
+		ctx.fontStyle += "B"
 	case "i":
-		attrMap.Set("<I>", "1")
+		ctx.fontStyle += "I"
 	case "u":
-		attrMap.Set("<U>", "1")
+		ctx.fontStyle += "U"
 	case "table":
 	case "html":
 	case "tbody":
@@ -205,35 +208,22 @@ func processTextNode(attrMap *NestedMap, n *html.Node, ctx *Context) {
 }
 
 func processSingleLineItem(attrMap *NestedMap, ctx *Context, word string) {
-	fontStyle := getCurrentFontstyle(attrMap)
+	fontStyle := ctx.fontStyle
 
 	ctx.pdf.SetFontStyle(fontStyle)
 	wordWidth := ctx.pdf.GetStringWidth(ctx.translator(word))
 
-	if (ctx.lineBufferLength + wordWidth) > attrMap.Fetch("CURRENT_AREA_WIDTH").(float64) {
+	if (*ctx.lineBufferLength + wordWidth) > attrMap.Fetch("CURRENT_AREA_WIDTH").(float64) {
 		//fmt.Println("flushing linebuffer because of space", ctx.lineBufferLength, wordWidth)
 		flushLineBuffer(ctx, attrMap)
 	}
 
 	// TODO performance?
 	//	fmt.Println("appending to linebuffer ", word, ctx.lineBufferLength, wordWidth)
-	ctx.lineBuffer = append(ctx.lineBuffer, TextLineItem{text: word, fontStyle: fontStyle})
-	ctx.lineBufferLength = ctx.lineBufferLength + wordWidth
+	*ctx.lineBuffer = append(*ctx.lineBuffer, TextLineItem{text: word, fontStyle: fontStyle})
+	*ctx.lineBufferLength = *ctx.lineBufferLength + wordWidth
 	//fmt.Println("new linebuffer length  ", ctx.lineBufferLength)
 
-}
-func getCurrentFontstyle(attrMap *NestedMap) string {
-	fontStyle := ""
-	if attrMap.IsSet("<B>") {
-		fontStyle += "B"
-	}
-	if attrMap.IsSet("<I>") {
-		fontStyle += "I"
-	}
-	if attrMap.IsSet("<U>") {
-		fontStyle += "U"
-	}
-	return fontStyle
 }
 
 type NestedMap struct {
