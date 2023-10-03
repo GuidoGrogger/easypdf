@@ -62,10 +62,10 @@ func processNodeRecur(ctx Context, n *html.Node) {
 	}
 
 	// for non element nodes
-	processChdilrenRecu(n, &ctx)
+	processChildrenRecu(n, &ctx)
 }
 
-func processChdilrenRecu(n *html.Node, ctx *Context) {
+func processChildrenRecu(n *html.Node, ctx *Context) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		processNodeRecur(*ctx, c)
 	}
@@ -76,7 +76,7 @@ func processElement(n *html.Node, ctx *Context) {
 	case "p":
 		align := getAligment(n)
 		ctx.Aligment = align
-		processChdilrenRecu(n, ctx)
+		processChildrenRecu(n, ctx)
 		flushLineBuffer(ctx)
 		ctx.pdf.Ln(3) // On top of normal line buffer heigth
 		return
@@ -114,7 +114,7 @@ func processElement(n *html.Node, ctx *Context) {
 						ctx.Aligment = align
 						ctx.pdf.SetY(rowY)
 						fmt.Printf("Rendering Row: %d, Col: %d, X-pos=%f, Y-pos=%f, Width=%f\n", rowNum, colNum, x, rowY, columWidth)
-						processChdilrenRecu(td, ctx)
+						processChildrenRecu(td, ctx)
 						flushLineBuffer(ctx)
 						colHeight := ctx.pdf.GetY() - rowY
 						if colHeight > rowHeight {
@@ -137,7 +137,7 @@ func processElement(n *html.Node, ctx *Context) {
 	default:
 		log.Fatal("Unbekanntes Element <" + n.Data + "> gefunden")
 	}
-	processChdilrenRecu(n, ctx)
+	processChildrenRecu(n, ctx)
 
 }
 
