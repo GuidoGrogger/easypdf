@@ -16,10 +16,14 @@ type Context struct {
 	// line buffer needed because items on a single line can be nested in html, like <b><i>...</i></b>
 	LineBuffer       *[]LineItem
 	LineBufferLength *float64
-	FontStyle        string
 	CurrentAreaX     float64
 	CurrentAreaWidth float64
-	Aligment         string
+	NodeContext      NodeContext
+}
+
+type NodeContext struct {
+	FontStyle string
+	Aligment  string
 }
 
 func CreatePDF(htmlDoc string, w io.Writer) error {
@@ -32,17 +36,20 @@ func CreatePDF(htmlDoc string, w io.Writer) error {
 	pdf.AddPage()
 	pdf.SetFont("Arial", "", 12)
 
+	nodeCtx := NodeContext{
+		FontStyle: "",
+		Aligment:  "left",
+	}
+
 	context := Context{
 		Pdf:              pdf,
 		Translator:       pdf.UnicodeTranslatorFromDescriptor(""),
 		LineBufferLength: new(float64),
 		LineBuffer:       new([]LineItem),
-		FontStyle:        "",
 		CurrentAreaX:     pdf.GetX(),
 		CurrentAreaWidth: 180.0,
-		Aligment:         "left",
+		NodeContext:      nodeCtx,
 	}
-	context.CurrentAreaX = pdf.GetX()
 
 	processNodeRecur(context, doc)
 
@@ -75,17 +82,17 @@ func processElement(n *html.Node, ctx *Context) {
 	switch n.Data {
 	case "p":
 		align := getAligment(n)
-		ctx.Aligment = align
+		ctx.NodeContext.Aligment = align
 		processChildrenRecu(n, ctx)
 		flushLineBuffer(ctx)
 		ctx.Pdf.Ln(3) // On top of normal line buffer heigth
 		return
 	case "b":
-		ctx.FontStyle += "B"
+		ctx.NodeContext.FontStyle += "B"
 	case "i":
-		ctx.FontStyle += "I"
+		ctx.NodeContext.FontStyle += "I"
 	case "u":
-		ctx.FontStyle += "U"
+		ctx.NodeContext.FontStyle += "U"
 	case "table":
 	case "html":
 	case "tbody":
@@ -111,7 +118,7 @@ func processElement(n *html.Node, ctx *Context) {
 						ctx.CurrentAreaX = x
 						ctx.CurrentAreaWidth = columWidth
 						align := getAligment(td)
-						ctx.Aligment = align
+						ctx.NodeContext.Aligment = align
 						ctx.Pdf.SetY(rowY)
 						fmt.Printf("Rendering Row: %d, Col: %d, X-pos=%f, Y-pos=%f, Width=%f\n", rowNum, colNum, x, rowY, columWidth)
 						processChildrenRecu(td, ctx)
@@ -163,7 +170,7 @@ func processTextNode(n *html.Node, ctx *Context) {
 }
 
 func processSingleLineItem(ctx *Context, word string) {
-	fontStyle := ctx.FontStyle
+	fontStyle := ctx.NodeContext.FontStyle
 
 	ctx.Pdf.SetFontStyle(fontStyle)
 	wordWidth := ctx.Pdf.GetStringWidth(ctx.Translator(word))
@@ -196,12 +203,12 @@ func flushLineBuffer(ctx *Context) {
 	ctx.Pdf.SetX(ctx.CurrentAreaX)
 	gapToFill := ctx.CurrentAreaWidth - *ctx.LineBufferLength
 
-	if ctx.Aligment == "right" {
+	if ctx.NodeContext.Aligment == "right" {
 		ctx.Pdf.SetX(ctx.Pdf.GetX() + gapToFill)
 	}
 
 	gapBetweenItems := 0.0
-	if ctx.Aligment == "block" {
+	if ctx.NodeContext.Aligment == "block" {
 		itemsCount := len(*ctx.LineBuffer)
 		gapBetweenItems = gapToFill / float64(itemsCount-1)
 	}
