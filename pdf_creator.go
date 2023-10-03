@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"log"
 	"strings"
@@ -111,7 +110,7 @@ func processElement(n *html.Node, ctx *Context) {
 		tableX := ctx.ElementNodeContext.X
 		tableY := ctx.Pdf.GetY()
 		columWidth := tableWidth / (float64)(cols)
-		fmt.Printf("Table detected: Rows=%d, Cols=%d, X-pos=%f, Y-pos=%f, Width=%f, Column Width=%f\n", rows, cols, tableX, tableY, tableWidth, columWidth)
+		log.Printf("Table detected: Rows=%d, Cols=%d, X-pos=%f, Y-pos=%f, Width=%f, Column Width=%f\n", rows, cols, tableX, tableY, tableWidth, columWidth)
 
 		// its amazing: https://chat.openai.com/share/b8fdc0c7-9de5-4eca-a3b4-fcbca8017459
 		rowNum := 0
@@ -139,7 +138,7 @@ func processTableRow(child *html.Node, rowNum int, ctx *Context, tableX float64,
 				ctx.ElementNodeContext.Width = columWidth
 				ctx.ElementNodeContext.Aligment = getAligment(td)
 				ctx.Pdf.SetY(rowY)
-				fmt.Printf("Rendering Row: %d, Col: %d, X-pos=%f, Y-pos=%f, Width=%f\n", rowNum, colNum, x, rowY, columWidth)
+				log.Printf("Rendering Row: %d, Col: %d, X-pos=%f, Y-pos=%f, Width=%f\n", rowNum, colNum, x, rowY, columWidth)
 				processChildrenRecu(td, ctx)
 				flushLineBuffer(ctx)
 				colHeight := ctx.Pdf.GetY() - rowY
