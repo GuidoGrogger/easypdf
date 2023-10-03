@@ -35,7 +35,7 @@ func flushLineBuffer(ctx *Context, attrMap *NestedMap) {
 	// TODO HAndling end of Paragraph
 	// todo, kann das in den line buffer?
 	ctx.pdf.SetX(ctx.CurrentAreaX)
-	gapToFill := attrMap.Fetch("CURRENT_AREA_WIDTH").(float64) - *ctx.lineBufferLength
+	gapToFill := ctx.CurrentAreaWidth - *ctx.lineBufferLength
 
 	if attrMap.Fetch("align") == "right" {
 		ctx.pdf.SetX(ctx.pdf.GetX() + gapToFill)
@@ -64,6 +64,7 @@ type Context struct {
 	lineBufferLength *float64
 	fontStyle        string
 	CurrentAreaX     float64
+	CurrentAreaWidth float64
 }
 
 func CreatePDF(htmlDoc string, w io.Writer) error {
@@ -84,10 +85,10 @@ func CreatePDF(htmlDoc string, w io.Writer) error {
 		lineBuffer:       new([]LineItem),
 		fontStyle:        "",
 		CurrentAreaX:     pdf.GetX(),
+		CurrentAreaWidth: 180.0,
 	}
 	topAttrMap := NewNestedMap(nil)
 	context.CurrentAreaX = pdf.GetX()
-	topAttrMap.Set("CURRENT_AREA_WIDTH", 180.0)
 
 	processNodeRecur(context, doc, topAttrMap)
 
@@ -136,7 +137,7 @@ func processElement(n *html.Node, attrMap *NestedMap, ctx *Context) {
 	case "html":
 	case "tbody":
 		rows, cols := countTableRowsAndCols(n)
-		tableWidth := attrMap.Fetch("CURRENT_AREA_WIDTH").(float64)
+		tableWidth := ctx.CurrentAreaWidth
 		tableX := ctx.CurrentAreaX
 		tableY := ctx.pdf.GetY()
 		columWidth := tableWidth / (float64)(cols)
@@ -155,7 +156,7 @@ func processElement(n *html.Node, attrMap *NestedMap, ctx *Context) {
 						colNum++
 						x := tableX + columWidth*float64(colNum-1)
 						ctx.CurrentAreaX = x
-						attrMap.Set("CURRENT_AREA_WIDTH", columWidth)
+						ctx.CurrentAreaWidth = columWidth
 						align := getAligment(td)
 						attrMap.Set("align", align)
 						ctx.pdf.SetY(rowY)
@@ -215,7 +216,7 @@ func processSingleLineItem(attrMap *NestedMap, ctx *Context, word string) {
 	ctx.pdf.SetFontStyle(fontStyle)
 	wordWidth := ctx.pdf.GetStringWidth(ctx.translator(word))
 
-	if (*ctx.lineBufferLength + wordWidth) > attrMap.Fetch("CURRENT_AREA_WIDTH").(float64) {
+	if (*ctx.lineBufferLength + wordWidth) > ctx.CurrentAreaWidth {
 		//fmt.Println("flushing linebuffer because of space", ctx.lineBufferLength, wordWidth)
 		flushLineBuffer(ctx, attrMap)
 	}
