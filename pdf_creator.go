@@ -34,7 +34,7 @@ func flushLineBuffer(ctx *Context, attrMap *NestedMap) {
 
 	// TODO HAndling end of Paragraph
 	// todo, kann das in den line buffer?
-	ctx.pdf.SetX(attrMap.Fetch("CURRENT_AREA_X").(float64))
+	ctx.pdf.SetX(ctx.CurrentAreaX)
 	gapToFill := attrMap.Fetch("CURRENT_AREA_WIDTH").(float64) - *ctx.lineBufferLength
 
 	if attrMap.Fetch("align") == "right" {
@@ -63,6 +63,7 @@ type Context struct {
 	lineBuffer       *[]LineItem
 	lineBufferLength *float64
 	fontStyle        string
+	CurrentAreaX     float64
 }
 
 func CreatePDF(htmlDoc string, w io.Writer) error {
@@ -82,9 +83,10 @@ func CreatePDF(htmlDoc string, w io.Writer) error {
 		lineBufferLength: new(float64),
 		lineBuffer:       new([]LineItem),
 		fontStyle:        "",
+		CurrentAreaX:     pdf.GetX(),
 	}
 	topAttrMap := NewNestedMap(nil)
-	topAttrMap.Set("CURRENT_AREA_X", pdf.GetX())
+	context.CurrentAreaX = pdf.GetX()
 	topAttrMap.Set("CURRENT_AREA_WIDTH", 180.0)
 
 	processNodeRecur(context, doc, topAttrMap)
@@ -135,7 +137,7 @@ func processElement(n *html.Node, attrMap *NestedMap, ctx *Context) {
 	case "tbody":
 		rows, cols := countTableRowsAndCols(n)
 		tableWidth := attrMap.Fetch("CURRENT_AREA_WIDTH").(float64)
-		tableX := attrMap.Fetch("CURRENT_AREA_X").(float64)
+		tableX := ctx.CurrentAreaX
 		tableY := ctx.pdf.GetY()
 		columWidth := tableWidth / (float64)(cols)
 		fmt.Printf("Table detected: Rows=%d, Cols=%d, X-pos=%f, Y-pos=%f, Width=%f, Column Width=%f\n", rows, cols, tableX, tableY, tableWidth, columWidth)
@@ -152,7 +154,7 @@ func processElement(n *html.Node, attrMap *NestedMap, ctx *Context) {
 					if td.Data == "td" || td.Data == "th" {
 						colNum++
 						x := tableX + columWidth*float64(colNum-1)
-						attrMap.Set("CURRENT_AREA_X", x)
+						ctx.CurrentAreaX = x
 						attrMap.Set("CURRENT_AREA_WIDTH", columWidth)
 						align := getAligment(td)
 						attrMap.Set("align", align)
