@@ -14,16 +14,25 @@ type Context struct {
 	Pdf        gofpdf.Pdf
 	Translator func(string) string
 	// line buffer needed because items on a single line can be nested in html, like <b><i>...</i></b>
-	LineBuffer       []LineItem
-	LineBufferLength float64
-	CurrentAreaX     float64
-	CurrentAreaWidth float64
-	NodeContext      NodeContext
+	LineBuffer         []LineItem
+	LineBufferLength   float64
+	CurrentAreaX       float64
+	CurrentAreaWidth   float64
+	ElementNodeContext ElementNodeContext
 }
 
-type NodeContext struct {
+type ElementNodeContext struct {
 	FontStyle string
 	Aligment  string
+}
+
+type LineItem interface {
+	Render(*Context)
+}
+
+type TextLineItem struct {
+	fontStyle string
+	text      string
 }
 
 func CreatePDF(htmlDoc string, w io.Writer) error {
@@ -36,19 +45,19 @@ func CreatePDF(htmlDoc string, w io.Writer) error {
 	pdf.AddPage()
 	pdf.SetFont("Arial", "", 12)
 
-	nodeCtx := NodeContext{
+	nodeCtx := ElementNodeContext{
 		FontStyle: "",
 		Aligment:  "left",
 	}
 
 	context := Context{
-		Pdf:              pdf,
-		Translator:       pdf.UnicodeTranslatorFromDescriptor(""),
-		LineBufferLength: 0.0,
-		LineBuffer:       []LineItem{},
-		CurrentAreaX:     pdf.GetX(),
-		CurrentAreaWidth: 180.0,
-		NodeContext:      nodeCtx,
+		Pdf:                pdf,
+		Translator:         pdf.UnicodeTranslatorFromDescriptor(""),
+		LineBufferLength:   0.0,
+		LineBuffer:         []LineItem{},
+		CurrentAreaX:       pdf.GetX(),
+		CurrentAreaWidth:   180.0,
+		ElementNodeContext: nodeCtx,
 	}
 
 	processNodeRecur(&context, doc)
@@ -57,27 +66,17 @@ func CreatePDF(htmlDoc string, w io.Writer) error {
 }
 
 func processNodeRecur(ctx *Context, n *html.Node) {
-
 	switch n.Type {
 	case html.TextNode:
 		processTextNode(n, ctx)
-		return
 
 	case html.ElementNode:
-		nodeCtxBefore := ctx.NodeContext
+		nodeCtxBefore := ctx.ElementNodeContext
 		processElement(n, ctx)
-		ctx.NodeContext = nodeCtxBefore
-		return
+		ctx.ElementNodeContext = nodeCtxBefore
 
 	default:
 		processChildrenRecu(n, ctx)
-	}
-
-}
-
-func processChildrenRecu(n *html.Node, ctx *Context) {
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		processNodeRecur(ctx, c)
 	}
 }
 
@@ -85,17 +84,17 @@ func processElement(n *html.Node, ctx *Context) {
 	switch n.Data {
 	case "p":
 		align := getAligment(n)
-		ctx.NodeContext.Aligment = align
+		ctx.ElementNodeContext.Aligment = align
 		processChildrenRecu(n, ctx)
 		flushLineBuffer(ctx)
 		ctx.Pdf.Ln(3) // On top of normal line buffer heigth
 		return
 	case "b":
-		ctx.NodeContext.FontStyle += "B"
+		ctx.ElementNodeContext.FontStyle += "B"
 	case "i":
-		ctx.NodeContext.FontStyle += "I"
+		ctx.ElementNodeContext.FontStyle += "I"
 	case "u":
-		ctx.NodeContext.FontStyle += "U"
+		ctx.ElementNodeContext.FontStyle += "U"
 	case "table":
 	case "html":
 	case "tbody":
@@ -121,7 +120,7 @@ func processElement(n *html.Node, ctx *Context) {
 						ctx.CurrentAreaX = x
 						ctx.CurrentAreaWidth = columWidth
 						align := getAligment(td)
-						ctx.NodeContext.Aligment = align
+						ctx.ElementNodeContext.Aligment = align
 						ctx.Pdf.SetY(rowY)
 						fmt.Printf("Rendering Row: %d, Col: %d, X-pos=%f, Y-pos=%f, Width=%f\n", rowNum, colNum, x, rowY, columWidth)
 						processChildrenRecu(td, ctx)
@@ -152,6 +151,22 @@ func processElement(n *html.Node, ctx *Context) {
 
 }
 
+func processTextNode(n *html.Node, ctx *Context) {
+	words := strings.Split(n.Data, " ")
+	for _, word := range words {
+		word = strings.TrimSpace(word)
+		if len(word) > 0 {
+			processSingleLineItem(ctx, word+" ")
+		}
+	}
+}
+
+func processChildrenRecu(n *html.Node, ctx *Context) {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		processNodeRecur(ctx, c)
+	}
+}
+
 func getAligment(n *html.Node) string {
 	align := "left"
 	for _, attr := range n.Attr {
@@ -163,18 +178,8 @@ func getAligment(n *html.Node) string {
 	return align
 }
 
-func processTextNode(n *html.Node, ctx *Context) {
-	words := strings.Split(n.Data, " ")
-	for _, word := range words {
-		word = strings.TrimSpace(word)
-		if len(word) > 0 {
-			processSingleLineItem(ctx, word+" ")
-		}
-	}
-}
-
 func processSingleLineItem(ctx *Context, word string) {
-	fontStyle := ctx.NodeContext.FontStyle
+	fontStyle := ctx.ElementNodeContext.FontStyle
 
 	ctx.Pdf.SetFontStyle(fontStyle)
 	wordWidth := ctx.Pdf.GetStringWidth(ctx.Translator(word))
@@ -187,19 +192,10 @@ func processSingleLineItem(ctx *Context, word string) {
 	ctx.LineBufferLength = ctx.LineBufferLength + wordWidth
 }
 
-type TextLineItem struct {
-	fontStyle string
-	text      string
-}
-
 func (t TextLineItem) Render(ctx *Context) {
 	ctx.Pdf.SetFontStyle(t.fontStyle)
 	wordWidth := ctx.Pdf.GetStringWidth(ctx.Translator(t.text))
 	ctx.Pdf.CellFormat(wordWidth, 10, ctx.Translator(t.text), "0", 0, "", false, 0, "")
-}
-
-type LineItem interface {
-	Render(*Context)
 }
 
 func flushLineBuffer(ctx *Context) {
@@ -207,12 +203,12 @@ func flushLineBuffer(ctx *Context) {
 	ctx.Pdf.SetX(ctx.CurrentAreaX)
 	gapToFill := ctx.CurrentAreaWidth - ctx.LineBufferLength
 
-	if ctx.NodeContext.Aligment == "right" {
+	if ctx.ElementNodeContext.Aligment == "right" {
 		ctx.Pdf.SetX(ctx.Pdf.GetX() + gapToFill)
 	}
 
 	gapBetweenItems := 0.0
-	if ctx.NodeContext.Aligment == "block" {
+	if ctx.ElementNodeContext.Aligment == "block" {
 		itemsCount := len(ctx.LineBuffer)
 		gapBetweenItems = gapToFill / float64(itemsCount-1)
 	}
