@@ -11,8 +11,8 @@ import (
 )
 
 type Context struct {
-	pdf        gofpdf.Pdf          // initialze as pointer
-	translator func(string) string // check memory?
+	pdf        gofpdf.Pdf
+	translator func(string) string
 	// line buffer needed because items on a single line can be nested in html, like <b><i>...</i></b>
 	lineBuffer       *[]LineItem
 	lineBufferLength *float64
@@ -32,7 +32,6 @@ func CreatePDF(htmlDoc string, w io.Writer) error {
 	pdf.AddPage()
 	pdf.SetFont("Arial", "", 12)
 
-	// better pointer?
 	context := Context{
 		pdf:              pdf,
 		translator:       pdf.UnicodeTranslatorFromDescriptor(""),
@@ -158,7 +157,6 @@ func processTextNode(n *html.Node, ctx *Context) {
 	for _, word := range words {
 		word = strings.TrimSpace(word)
 		if len(word) > 0 {
-
 			processSingleLineItem(ctx, word+" ")
 		}
 	}
@@ -171,16 +169,11 @@ func processSingleLineItem(ctx *Context, word string) {
 	wordWidth := ctx.pdf.GetStringWidth(ctx.translator(word))
 
 	if (*ctx.lineBufferLength + wordWidth) > ctx.CurrentAreaWidth {
-		//fmt.Println("flushing linebuffer because of space", ctx.lineBufferLength, wordWidth)
 		flushLineBuffer(ctx)
 	}
 
-	// TODO performance?
-	//	fmt.Println("appending to linebuffer ", word, ctx.lineBufferLength, wordWidth)
 	*ctx.lineBuffer = append(*ctx.lineBuffer, TextLineItem{text: word, fontStyle: fontStyle})
 	*ctx.lineBufferLength = *ctx.lineBufferLength + wordWidth
-	//fmt.Println("new linebuffer length  ", ctx.lineBufferLength)
-
 }
 
 type TextLineItem struct {
@@ -189,7 +182,6 @@ type TextLineItem struct {
 }
 
 func (t TextLineItem) Render(ctx *Context) {
-	//fmt.Print(t.text)
 	ctx.pdf.SetFontStyle(t.fontStyle)
 	wordWidth := ctx.pdf.GetStringWidth(ctx.translator(t.text))
 	ctx.pdf.CellFormat(wordWidth, 10, ctx.translator(t.text), "0", 0, "", false, 0, "")
@@ -200,11 +192,7 @@ type LineItem interface {
 }
 
 func flushLineBuffer(ctx *Context) {
-
-	//fmt.Println("linebuffer flush begin ", ctx.lineBufferLength)
-
-	// TODO HAndling end of Paragraph
-	// todo, kann das in den line buffer?
+	// to the line buffer?
 	ctx.pdf.SetX(ctx.CurrentAreaX)
 	gapToFill := ctx.CurrentAreaWidth - *ctx.lineBufferLength
 
@@ -227,24 +215,18 @@ func flushLineBuffer(ctx *Context) {
 	ctx.pdf.Ln(7) // TODO Caluclate based on Line heigth
 }
 
-// countTableRowsAndCols nimmt einen HTML-Node, der eine <table> darstellt,
-// und gibt die Anzahl der Zeilen und Spalten zurück.
 func countTableRowsAndCols(tableNode *html.Node) (int, int) {
 	var rows, cols int
 
-	// Durchlaufe alle Kinder des Tabelle-Knotens
 	for child := tableNode.FirstChild; child != nil; child = child.NextSibling {
-		// Wenn der Kindknoten ein <tr> ist
 		if child.Data == "tr" {
 			rows++
 			var currentCols int
-			// Durchlaufe alle Kinder des <tr>-Knotens und zähle <td> oder <th>-Elemente
 			for td := child.FirstChild; td != nil; td = td.NextSibling {
 				if td.Data == "td" || td.Data == "th" {
 					currentCols++
 				}
 			}
-			// Wenn currentCols größer als cols ist, aktualisiere cols
 			if currentCols > cols {
 				cols = currentCols
 			}
