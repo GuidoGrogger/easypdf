@@ -15,15 +15,15 @@ type Context struct {
 	Translator func(string) string
 	// line buffer needed because items on a single line can be nested in html, like <b><i>...</i></b>
 	LineBuffer         []LineItem
-	LineBufferLength   float64
-	CurrentAreaX       float64
-	CurrentAreaWidth   float64
+	LineBufferWidth    float64
 	ElementNodeContext ElementNodeContext
 }
 
 type ElementNodeContext struct {
 	FontStyle string
 	Aligment  string
+	X         float64
+	Width     float64
 }
 
 type LineItem interface {
@@ -48,15 +48,15 @@ func CreatePDF(htmlDoc string, w io.Writer) error {
 	nodeCtx := ElementNodeContext{
 		FontStyle: "",
 		Aligment:  "left",
+		X:         pdf.GetX(),
+		Width:     180.0,
 	}
 
 	context := Context{
 		Pdf:                pdf,
 		Translator:         pdf.UnicodeTranslatorFromDescriptor(""),
-		LineBufferLength:   0.0,
+		LineBufferWidth:    0.0,
 		LineBuffer:         []LineItem{},
-		CurrentAreaX:       pdf.GetX(),
-		CurrentAreaWidth:   180.0,
 		ElementNodeContext: nodeCtx,
 	}
 
@@ -99,48 +99,18 @@ func processElement(n *html.Node, ctx *Context) {
 	case "html":
 	case "tbody":
 		rows, cols := countTableRowsAndCols(n)
-		tableWidth := ctx.CurrentAreaWidth
-		tableX := ctx.CurrentAreaX
+		tableWidth := ctx.ElementNodeContext.Width
+		tableX := ctx.ElementNodeContext.X
 		tableY := ctx.Pdf.GetY()
 		columWidth := tableWidth / (float64)(cols)
 		fmt.Printf("Table detected: Rows=%d, Cols=%d, X-pos=%f, Y-pos=%f, Width=%f, Column Width=%f\n", rows, cols, tableX, tableY, tableWidth, columWidth)
 
-		// wft, its amazing: https://chat.openai.com/share/b8fdc0c7-9de5-4eca-a3b4-fcbca8017459
+		// its amazing: https://chat.openai.com/share/b8fdc0c7-9de5-4eca-a3b4-fcbca8017459
 		rowNum := 0
 		for child := n.FirstChild; child != nil; child = child.NextSibling {
-			if child.Data == "tr" {
-				rowNum++
-				rowHeight := 0.0
-				rowY := ctx.Pdf.GetY()
-				colNum := 0
-				for td := child.FirstChild; td != nil; td = td.NextSibling {
-					if td.Data == "td" || td.Data == "th" {
-						colNum++
-						x := tableX + columWidth*float64(colNum-1)
-						ctx.CurrentAreaX = x
-						ctx.CurrentAreaWidth = columWidth
-						align := getAligment(td)
-						ctx.ElementNodeContext.Aligment = align
-						ctx.Pdf.SetY(rowY)
-						fmt.Printf("Rendering Row: %d, Col: %d, X-pos=%f, Y-pos=%f, Width=%f\n", rowNum, colNum, x, rowY, columWidth)
-						processChildrenRecu(td, ctx)
-						flushLineBuffer(ctx)
-						colHeight := ctx.Pdf.GetY() - rowY
-						if colHeight > rowHeight {
-							rowHeight = colHeight
-						}
-					}
-				}
-				// Drawing the rectangle for each cell in gofpdf to span the full height of the row
-				for i := 1; i <= colNum; i++ {
-					x := tableX + columWidth*float64(i-1)
-					ctx.Pdf.Rect(x, rowY, columWidth, rowHeight, "D")
-				}
-				ctx.Pdf.SetY(rowY + rowHeight)
-			}
+			// Drawing the rectangle for each cell in gofpdf to span the full height of the row
+			processTableRow(child, rowNum, ctx, tableX, columWidth)
 		}
-		ctx.CurrentAreaWidth = tableWidth
-		ctx.CurrentAreaX = tableX
 		return
 	case "head":
 	case "body":
@@ -151,12 +121,45 @@ func processElement(n *html.Node, ctx *Context) {
 
 }
 
+func processTableRow(child *html.Node, rowNum int, ctx *Context, tableX float64, columWidth float64) {
+	if child.Data == "tr" {
+		rowNum++
+		maxRowHeight := 0.0
+		rowY := ctx.Pdf.GetY()
+		colNum := 0
+		for td := child.FirstChild; td != nil; td = td.NextSibling {
+			if td.Data == "td" || td.Data == "th" {
+				colNum++
+				x := tableX + columWidth*float64(colNum-1)
+				ctx.ElementNodeContext.X = x
+				ctx.ElementNodeContext.Width = columWidth
+				ctx.ElementNodeContext.Aligment = getAligment(td)
+				ctx.Pdf.SetY(rowY)
+				fmt.Printf("Rendering Row: %d, Col: %d, X-pos=%f, Y-pos=%f, Width=%f\n", rowNum, colNum, x, rowY, columWidth)
+				processChildrenRecu(td, ctx)
+				flushLineBuffer(ctx)
+				colHeight := ctx.Pdf.GetY() - rowY
+				if colHeight > maxRowHeight {
+					maxRowHeight = colHeight
+				}
+			}
+		}
+
+		// draw cell borders
+		for i := 1; i <= colNum; i++ {
+			x := tableX + columWidth*float64(i-1)
+			ctx.Pdf.Rect(x, rowY, columWidth, maxRowHeight, "D")
+		}
+		ctx.Pdf.SetY(rowY + maxRowHeight)
+	}
+}
+
 func processTextNode(n *html.Node, ctx *Context) {
 	words := strings.Split(n.Data, " ")
 	for _, word := range words {
 		word = strings.TrimSpace(word)
 		if len(word) > 0 {
-			processSingleLineItem(ctx, word+" ")
+			processSingleWord(ctx, word+" ")
 		}
 	}
 }
@@ -178,18 +181,18 @@ func getAligment(n *html.Node) string {
 	return align
 }
 
-func processSingleLineItem(ctx *Context, word string) {
+func processSingleWord(ctx *Context, word string) {
 	fontStyle := ctx.ElementNodeContext.FontStyle
 
 	ctx.Pdf.SetFontStyle(fontStyle)
 	wordWidth := ctx.Pdf.GetStringWidth(ctx.Translator(word))
 
-	if (ctx.LineBufferLength + wordWidth) > ctx.CurrentAreaWidth {
+	if (ctx.LineBufferWidth + wordWidth) > ctx.ElementNodeContext.Width {
 		flushLineBuffer(ctx)
 	}
 
 	ctx.LineBuffer = append(ctx.LineBuffer, TextLineItem{text: word, fontStyle: fontStyle})
-	ctx.LineBufferLength = ctx.LineBufferLength + wordWidth
+	ctx.LineBufferWidth = ctx.LineBufferWidth + wordWidth
 }
 
 func (t TextLineItem) Render(ctx *Context) {
@@ -200,8 +203,8 @@ func (t TextLineItem) Render(ctx *Context) {
 
 func flushLineBuffer(ctx *Context) {
 	// to the line buffer?
-	ctx.Pdf.SetX(ctx.CurrentAreaX)
-	gapToFill := ctx.CurrentAreaWidth - ctx.LineBufferLength
+	ctx.Pdf.SetX(ctx.ElementNodeContext.X)
+	gapToFill := ctx.ElementNodeContext.Width - ctx.LineBufferWidth
 
 	if ctx.ElementNodeContext.Aligment == "right" {
 		ctx.Pdf.SetX(ctx.Pdf.GetX() + gapToFill)
@@ -218,7 +221,7 @@ func flushLineBuffer(ctx *Context) {
 		ctx.Pdf.SetX(ctx.Pdf.GetX() + gapBetweenItems)
 	}
 	ctx.LineBuffer = (ctx.LineBuffer)[:0]
-	ctx.LineBufferLength = 0.0
+	ctx.LineBufferWidth = 0.0
 	ctx.Pdf.Ln(7) // TODO Caluclate based on Line heigth
 }
 
