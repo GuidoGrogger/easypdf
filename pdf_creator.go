@@ -82,21 +82,29 @@ func processNodeRecur(ctx *Context, n *html.Node) {
 
 func processElement(n *html.Node, ctx *Context) {
 	switch n.Data {
+	case "html":
+		processChildrenRecu(n, ctx)
+	case "head":
+		processChildrenRecu(n, ctx)
+	case "body":
+		processChildrenRecu(n, ctx)
 	case "p":
 		align := getAligment(n)
 		ctx.ElementNodeContext.Aligment = align
 		processChildrenRecu(n, ctx)
 		flushLineBuffer(ctx)
 		ctx.Pdf.Ln(3) // On top of normal line buffer heigth
-		return
 	case "b":
 		ctx.ElementNodeContext.FontStyle += "B"
+		processChildrenRecu(n, ctx)
 	case "i":
 		ctx.ElementNodeContext.FontStyle += "I"
+		processChildrenRecu(n, ctx)
 	case "u":
 		ctx.ElementNodeContext.FontStyle += "U"
+		processChildrenRecu(n, ctx)
 	case "table":
-	case "html":
+		processChildrenRecu(n, ctx)
 	case "tbody":
 		rows, cols := countTableRowsAndCols(n)
 		tableWidth := ctx.ElementNodeContext.Width
@@ -111,13 +119,9 @@ func processElement(n *html.Node, ctx *Context) {
 			// Drawing the rectangle for each cell in gofpdf to span the full height of the row
 			processTableRow(child, rowNum, ctx, tableX, columWidth)
 		}
-		return
-	case "head":
-	case "body":
 	default:
 		log.Fatal("Unbekanntes Element <" + n.Data + "> gefunden")
 	}
-	processChildrenRecu(n, ctx)
 
 }
 
