@@ -10,52 +10,6 @@ import (
 	"golang.org/x/net/html"
 )
 
-type TextLineItem struct {
-	fontStyle string
-	text      string
-}
-
-func (t TextLineItem) Render(ctx *Context) {
-	//fmt.Print(t.text)
-	ctx.pdf.SetFontStyle(t.fontStyle)
-	wordWidth := ctx.pdf.GetStringWidth(ctx.translator(t.text))
-	ctx.pdf.CellFormat(wordWidth, 10, ctx.translator(t.text), "0", 0, "", false, 0, "")
-}
-
-type LineItem interface {
-	Render(*Context)
-}
-
-func flushLineBuffer(ctx *Context, attrMap *NestedMap) {
-
-	//fmt.Println("linebuffer flush begin ", ctx.lineBufferLength)
-
-	//fmt.Println("algimnetn ", attrMap.Fetch("align"))
-
-	// TODO HAndling end of Paragraph
-	// todo, kann das in den line buffer?
-	ctx.pdf.SetX(ctx.CurrentAreaX)
-	gapToFill := ctx.CurrentAreaWidth - *ctx.lineBufferLength
-
-	if attrMap.Fetch("align") == "right" {
-		ctx.pdf.SetX(ctx.pdf.GetX() + gapToFill)
-	}
-
-	gapBetweenItems := 0.0
-	if attrMap.Fetch("align") == "block" {
-		itemsCount := len(*ctx.lineBuffer)
-		gapBetweenItems = gapToFill / float64(itemsCount-1)
-	}
-
-	for _, value := range *ctx.lineBuffer {
-		value.Render(ctx)
-		ctx.pdf.SetX(ctx.pdf.GetX() + gapBetweenItems)
-	}
-	*ctx.lineBuffer = (*ctx.lineBuffer)[:0]
-	*ctx.lineBufferLength = 0.0
-	ctx.pdf.Ln(7) // TODO Caluclate based on Line heigth
-}
-
 type Context struct {
 	pdf        gofpdf.Pdf          // initialze as pointer
 	translator func(string) string // check memory?
@@ -65,6 +19,7 @@ type Context struct {
 	fontStyle        string
 	CurrentAreaX     float64
 	CurrentAreaWidth float64
+	Aligment         string
 }
 
 func CreatePDF(htmlDoc string, w io.Writer) error {
@@ -86,45 +41,44 @@ func CreatePDF(htmlDoc string, w io.Writer) error {
 		fontStyle:        "",
 		CurrentAreaX:     pdf.GetX(),
 		CurrentAreaWidth: 180.0,
+		Aligment:         "left",
 	}
-	topAttrMap := NewNestedMap(nil)
 	context.CurrentAreaX = pdf.GetX()
 
-	processNodeRecur(context, doc, topAttrMap)
+	processNodeRecur(context, doc)
 
 	return pdf.Output(w)
 }
 
-func processNodeRecur(ctx Context, n *html.Node, parentAttrMap *NestedMap) {
-	attrMap := NewNestedMap(parentAttrMap)
+func processNodeRecur(ctx Context, n *html.Node) {
 
 	if n.Type == html.TextNode {
-		processTextNode(attrMap, n, &ctx)
+		processTextNode(n, &ctx)
 		return
 	}
 
 	if n.Type == html.ElementNode {
-		processElement(n, attrMap, &ctx)
+		processElement(n, &ctx)
 		return
 	}
 
 	// for non element nodes
-	processChdilrenRecu(n, &ctx, attrMap)
+	processChdilrenRecu(n, &ctx)
 }
 
-func processChdilrenRecu(n *html.Node, ctx *Context, attrMap *NestedMap) {
+func processChdilrenRecu(n *html.Node, ctx *Context) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		processNodeRecur(*ctx, c, attrMap)
+		processNodeRecur(*ctx, c)
 	}
 }
 
-func processElement(n *html.Node, attrMap *NestedMap, ctx *Context) {
+func processElement(n *html.Node, ctx *Context) {
 	switch n.Data {
 	case "p":
 		align := getAligment(n)
-		attrMap.Set("align", align)
-		processChdilrenRecu(n, ctx, attrMap)
-		flushLineBuffer(ctx, attrMap)
+		ctx.Aligment = align
+		processChdilrenRecu(n, ctx)
+		flushLineBuffer(ctx)
 		ctx.pdf.Ln(3) // On top of normal line buffer heigth
 		return
 	case "b":
@@ -158,11 +112,11 @@ func processElement(n *html.Node, attrMap *NestedMap, ctx *Context) {
 						ctx.CurrentAreaX = x
 						ctx.CurrentAreaWidth = columWidth
 						align := getAligment(td)
-						attrMap.Set("align", align)
+						ctx.Aligment = align
 						ctx.pdf.SetY(rowY)
 						fmt.Printf("Rendering Row: %d, Col: %d, X-pos=%f, Y-pos=%f, Width=%f\n", rowNum, colNum, x, rowY, columWidth)
-						processChdilrenRecu(td, ctx, attrMap)
-						flushLineBuffer(ctx, attrMap)
+						processChdilrenRecu(td, ctx)
+						flushLineBuffer(ctx)
 						colHeight := ctx.pdf.GetY() - rowY
 						if colHeight > rowHeight {
 							rowHeight = colHeight
@@ -184,7 +138,7 @@ func processElement(n *html.Node, attrMap *NestedMap, ctx *Context) {
 	default:
 		log.Fatal("Unbekanntes Element <" + n.Data + "> gefunden")
 	}
-	processChdilrenRecu(n, ctx, attrMap)
+	processChdilrenRecu(n, ctx)
 
 }
 
@@ -199,18 +153,18 @@ func getAligment(n *html.Node) string {
 	return align
 }
 
-func processTextNode(attrMap *NestedMap, n *html.Node, ctx *Context) {
+func processTextNode(n *html.Node, ctx *Context) {
 	words := strings.Split(n.Data, " ")
 	for _, word := range words {
 		word = strings.TrimSpace(word)
 		if len(word) > 0 {
 
-			processSingleLineItem(attrMap, ctx, word+" ")
+			processSingleLineItem(ctx, word+" ")
 		}
 	}
 }
 
-func processSingleLineItem(attrMap *NestedMap, ctx *Context, word string) {
+func processSingleLineItem(ctx *Context, word string) {
 	fontStyle := ctx.fontStyle
 
 	ctx.pdf.SetFontStyle(fontStyle)
@@ -218,7 +172,7 @@ func processSingleLineItem(attrMap *NestedMap, ctx *Context, word string) {
 
 	if (*ctx.lineBufferLength + wordWidth) > ctx.CurrentAreaWidth {
 		//fmt.Println("flushing linebuffer because of space", ctx.lineBufferLength, wordWidth)
-		flushLineBuffer(ctx, attrMap)
+		flushLineBuffer(ctx)
 	}
 
 	// TODO performance?
@@ -229,37 +183,48 @@ func processSingleLineItem(attrMap *NestedMap, ctx *Context, word string) {
 
 }
 
-type NestedMap struct {
-	Data   map[string]interface{}
-	Parent *NestedMap
+type TextLineItem struct {
+	fontStyle string
+	text      string
 }
 
-func NewNestedMap(parent *NestedMap) *NestedMap {
-	return &NestedMap{
-		Data:   make(map[string]interface{}),
-		Parent: parent,
+func (t TextLineItem) Render(ctx *Context) {
+	//fmt.Print(t.text)
+	ctx.pdf.SetFontStyle(t.fontStyle)
+	wordWidth := ctx.pdf.GetStringWidth(ctx.translator(t.text))
+	ctx.pdf.CellFormat(wordWidth, 10, ctx.translator(t.text), "0", 0, "", false, 0, "")
+}
+
+type LineItem interface {
+	Render(*Context)
+}
+
+func flushLineBuffer(ctx *Context) {
+
+	//fmt.Println("linebuffer flush begin ", ctx.lineBufferLength)
+
+	// TODO HAndling end of Paragraph
+	// todo, kann das in den line buffer?
+	ctx.pdf.SetX(ctx.CurrentAreaX)
+	gapToFill := ctx.CurrentAreaWidth - *ctx.lineBufferLength
+
+	if ctx.Aligment == "right" {
+		ctx.pdf.SetX(ctx.pdf.GetX() + gapToFill)
 	}
-}
 
-func (c *NestedMap) Fetch(key string) interface{} {
-	value := c.Data[key]
-
-	if value != nil {
-		return value
+	gapBetweenItems := 0.0
+	if ctx.Aligment == "block" {
+		itemsCount := len(*ctx.lineBuffer)
+		gapBetweenItems = gapToFill / float64(itemsCount-1)
 	}
 
-	if c.Parent != nil {
-		return c.Parent.Fetch(key)
+	for _, value := range *ctx.lineBuffer {
+		value.Render(ctx)
+		ctx.pdf.SetX(ctx.pdf.GetX() + gapBetweenItems)
 	}
-
-	return nil
-}
-func (c *NestedMap) IsSet(key string) bool {
-	return c.Fetch(key) != nil
-}
-
-func (c *NestedMap) Set(key string, value interface{}) {
-	c.Data[key] = value
+	*ctx.lineBuffer = (*ctx.lineBuffer)[:0]
+	*ctx.lineBufferLength = 0.0
+	ctx.pdf.Ln(7) // TODO Caluclate based on Line heigth
 }
 
 // countTableRowsAndCols nimmt einen HTML-Node, der eine <table> darstellt,
