@@ -14,8 +14,8 @@ type Context struct {
 	Pdf        gofpdf.Pdf
 	Translator func(string) string
 	// line buffer needed because items on a single line can be nested in html, like <b><i>...</i></b>
-	LineBuffer       *[]LineItem
-	LineBufferLength *float64
+	LineBuffer       []LineItem
+	LineBufferLength float64
 	CurrentAreaX     float64
 	CurrentAreaWidth float64
 	NodeContext      NodeContext
@@ -44,37 +44,40 @@ func CreatePDF(htmlDoc string, w io.Writer) error {
 	context := Context{
 		Pdf:              pdf,
 		Translator:       pdf.UnicodeTranslatorFromDescriptor(""),
-		LineBufferLength: new(float64),
-		LineBuffer:       new([]LineItem),
+		LineBufferLength: 0.0,
+		LineBuffer:       []LineItem{},
 		CurrentAreaX:     pdf.GetX(),
 		CurrentAreaWidth: 180.0,
 		NodeContext:      nodeCtx,
 	}
 
-	processNodeRecur(context, doc)
+	processNodeRecur(&context, doc)
 
 	return pdf.Output(w)
 }
 
-func processNodeRecur(ctx Context, n *html.Node) {
+func processNodeRecur(ctx *Context, n *html.Node) {
 
-	if n.Type == html.TextNode {
-		processTextNode(n, &ctx)
+	switch n.Type {
+	case html.TextNode:
+		processTextNode(n, ctx)
 		return
+
+	case html.ElementNode:
+		nodeCtxBefore := ctx.NodeContext
+		processElement(n, ctx)
+		ctx.NodeContext = nodeCtxBefore
+		return
+
+	default:
+		processChildrenRecu(n, ctx)
 	}
 
-	if n.Type == html.ElementNode {
-		processElement(n, &ctx)
-		return
-	}
-
-	// for non element nodes
-	processChildrenRecu(n, &ctx)
 }
 
 func processChildrenRecu(n *html.Node, ctx *Context) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		processNodeRecur(*ctx, c)
+		processNodeRecur(ctx, c)
 	}
 }
 
@@ -137,7 +140,8 @@ func processElement(n *html.Node, ctx *Context) {
 				ctx.Pdf.SetY(rowY + rowHeight)
 			}
 		}
-
+		ctx.CurrentAreaWidth = tableWidth
+		ctx.CurrentAreaX = tableX
 		return
 	case "head":
 	case "body":
@@ -175,12 +179,12 @@ func processSingleLineItem(ctx *Context, word string) {
 	ctx.Pdf.SetFontStyle(fontStyle)
 	wordWidth := ctx.Pdf.GetStringWidth(ctx.Translator(word))
 
-	if (*ctx.LineBufferLength + wordWidth) > ctx.CurrentAreaWidth {
+	if (ctx.LineBufferLength + wordWidth) > ctx.CurrentAreaWidth {
 		flushLineBuffer(ctx)
 	}
 
-	*ctx.LineBuffer = append(*ctx.LineBuffer, TextLineItem{text: word, fontStyle: fontStyle})
-	*ctx.LineBufferLength = *ctx.LineBufferLength + wordWidth
+	ctx.LineBuffer = append(ctx.LineBuffer, TextLineItem{text: word, fontStyle: fontStyle})
+	ctx.LineBufferLength = ctx.LineBufferLength + wordWidth
 }
 
 type TextLineItem struct {
@@ -201,7 +205,7 @@ type LineItem interface {
 func flushLineBuffer(ctx *Context) {
 	// to the line buffer?
 	ctx.Pdf.SetX(ctx.CurrentAreaX)
-	gapToFill := ctx.CurrentAreaWidth - *ctx.LineBufferLength
+	gapToFill := ctx.CurrentAreaWidth - ctx.LineBufferLength
 
 	if ctx.NodeContext.Aligment == "right" {
 		ctx.Pdf.SetX(ctx.Pdf.GetX() + gapToFill)
@@ -209,16 +213,16 @@ func flushLineBuffer(ctx *Context) {
 
 	gapBetweenItems := 0.0
 	if ctx.NodeContext.Aligment == "block" {
-		itemsCount := len(*ctx.LineBuffer)
+		itemsCount := len(ctx.LineBuffer)
 		gapBetweenItems = gapToFill / float64(itemsCount-1)
 	}
 
-	for _, value := range *ctx.LineBuffer {
+	for _, value := range ctx.LineBuffer {
 		value.Render(ctx)
 		ctx.Pdf.SetX(ctx.Pdf.GetX() + gapBetweenItems)
 	}
-	*ctx.LineBuffer = (*ctx.LineBuffer)[:0]
-	*ctx.LineBufferLength = 0.0
+	ctx.LineBuffer = (ctx.LineBuffer)[:0]
+	ctx.LineBufferLength = 0.0
 	ctx.Pdf.Ln(7) // TODO Caluclate based on Line heigth
 }
 
