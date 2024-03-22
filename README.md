@@ -1,11 +1,11 @@
 # easyPdf
 
-**easyPdf** ist ein Lernprojekt, das zeigt, wie man ein HTML-zu-PDF-Tool in reinem Go erstellt. Es ist ein Projekt zum Spaß.
+easyPdf is a learning project that demonstrates how to create an HTML-to-PDF conversion tool using pure Go. It's a project undertaken for fun.
 
-## Unterstützte HTML-Elemente und Attribute
+## Supported HTML Elements and Attributes
 
 - `<p>`
-  - `align` (Werte: `block`, `right`)
+  - `align` (values: `block`, `right`)
 - `<b>`
 - `<u>`
 - `<i>`
@@ -14,18 +14,18 @@
 - `<tr>`
 - `<th>`
 - `<td>`
-  - `align` (Werte: `block`, `right`)
+  - `align` (values: `block`, `right`)
 
-## Ausführung
+## Execution
 
-Um das Tool auszuführen:
+To run the tool:
 
 ```bash
 go run .
 ```
 
-Das Ergebnis wird in der Datei `output.pdf` gespeichert.
+The result will be saved in the file `output.pdf`.
 
-## Lizenz
+## License
 
-Dieses Projekt steht unter der MIT-Lizenz. Details finden Sie in der LICENSE-Datei.
+This project is licensed under the MIT License. Details can be found in the LICENSE file.
